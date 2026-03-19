@@ -4,7 +4,7 @@ This file provides guidance to AI assistants (Claude and others) working with th
 
 ## Repository Status
 
-This repository is currently in its **initial setup phase**. As the codebase grows, this file should be updated to reflect the actual project structure, conventions, and workflows.
+**Insight** is a sourcing intelligence platform that pulls company data from Salesforce and enriches it with news, leadership changes, funding signals, and AI-generated outreach strategies. It serves both a React web dashboard and a daily email digest.
 
 ---
 
@@ -51,79 +51,142 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) format:
 
 ## Project Structure
 
-> **Note:** This section should be updated once source code is added.
-
 ```
 insight/
-├── CLAUDE.md          # This file — AI assistant guidance
-└── ...                # Project files to be added
+├── CLAUDE.md
+├── .env.example           # Copy to .env and fill in credentials
+├── .gitignore
+├── backend/
+│   ├── main.py            # FastAPI app + CORS + auth middleware + lifespan
+│   ├── database.py        # SQLAlchemy engine + session helpers
+│   ├── models.py          # Company, Signal, DigestLog ORM models
+│   ├── schemas.py         # Pydantic request/response schemas
+│   ├── scheduler.py       # APScheduler: daily enrichment (6AM) + digest (7AM)
+│   ├── requirements.txt
+│   ├── routers/
+│   │   ├── companies.py   # GET/POST /api/companies, /api/companies/{id}/enrich
+│   │   ├── signals.py     # GET /api/signals/{company_id}
+│   │   └── digest.py      # GET /api/digest/preview, POST /api/digest/send
+│   ├── services/
+│   │   ├── salesforce.py  # simple-salesforce: Account + Task/Note sync
+│   │   ├── news.py        # NewsAPI enrichment
+│   │   ├── linkedin.py    # RapidAPI LinkedIn company signals
+│   │   ├── crunchbase.py  # Crunchbase funding signals
+│   │   ├── ai_analyst.py  # OpenAI: summaries + cracking strategies
+│   │   ├── enricher.py    # Async orchestrator for all services
+│   │   └── email_digest.py # Jinja2 HTML email + SendGrid sender
+│   └── templates/
+│       └── digest.html    # Email digest HTML template
+└── frontend/
+    ├── index.html
+    ├── package.json
+    ├── vite.config.js     # Vite + proxy to :8000
+    └── src/
+        ├── main.jsx
+        ├── App.jsx
+        ├── api.js         # Axios client
+        ├── components/
+        │   ├── CompanyCard.jsx
+        │   ├── FilterBar.jsx
+        │   ├── SignalFeed.jsx
+        │   └── CrackingBrief.jsx
+        └── pages/
+            ├── Dashboard.jsx
+            └── CompanyDetail.jsx
 ```
 
 ---
 
 ## Technology Stack
 
-> **Note:** Update this section once the stack is determined.
-
 | Layer | Technology |
 |-------|-----------|
-| TBD   | TBD       |
+| Backend API | Python 3.11+, FastAPI, Uvicorn |
+| ORM / DB | SQLAlchemy 2.x, SQLite (MVP) |
+| Background jobs | APScheduler (AsyncIOScheduler) |
+| Salesforce | simple-salesforce |
+| HTTP client | httpx (async) |
+| AI | OpenAI GPT-4o |
+| Email | SendGrid + Jinja2 HTML |
+| Frontend | React 18, Vite 5, Axios |
 
 ---
 
 ## Development Workflows
 
-> **Note:** Update with actual commands once the project is initialized.
-
 ### Setup
 
 ```bash
-# Example (update once stack is known)
-# npm install       (Node.js)
-# pip install -r requirements.txt  (Python)
+# Backend
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp ../.env.example ../.env  # fill in credentials
+
+# Frontend
+cd frontend
+npm install
 ```
 
 ### Running the Application
 
 ```bash
-# Add start commands here
+# Backend (from backend/)
+uvicorn main:app --reload --port 8000
+
+# Frontend (from frontend/)
+npm run dev
+# Opens at http://localhost:5173
 ```
 
-### Running Tests
+### Initial Data Load
 
 ```bash
-# Add test commands here
-```
+# 1. Sync accounts from Salesforce
+curl -X POST http://localhost:8000/api/companies/sync \
+  -H "Authorization: Bearer <your-api-key>"
 
-### Linting and Formatting
+# 2. Enrich all companies (news + LinkedIn + Crunchbase + OpenAI)
+curl -X POST http://localhost:8000/api/enrich/all \
+  -H "Authorization: Bearer <your-api-key>"
 
-```bash
-# Add lint/format commands here
+# 3. Preview the email digest in browser
+open http://localhost:8000/api/digest/preview
 ```
 
 ---
 
 ## Key Conventions
 
-Once code is added, document conventions here including:
-
-- **Naming conventions** — file names, variables, functions, classes
-- **Directory layout** — where different types of files live
-- **Code style** — formatting rules, linter config
-- **API patterns** — request/response formats, error handling
-- **Testing patterns** — unit, integration, e2e structure
+- **Salesforce field**: `Priority__c` on Account (integer 1–5)
+- **Priority 5** companies get AI "cracking strategies" generated automatically
+- Enrichment clears old signals and re-fetches fresh data each run
+- API auth: Bearer token via `API_KEY` env var (leave blank to disable for local dev)
+- All datetimes stored in UTC
 
 ---
 
 ## Environment Variables
 
-> **Note:** Document required environment variables here as they are added.
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `SF_USERNAME` | Salesforce login email | Yes |
+| `SF_PASSWORD` | Salesforce password | Yes |
+| `SF_SECURITY_TOKEN` | Salesforce security token | Yes |
+| `SF_DOMAIN` | `login` or `test` (sandbox) | Yes |
+| `SF_OWNER_ID` | Your Salesforce User ID (18-char) | Yes |
+| `NEWS_API_KEY` | newsapi.org API key | Yes |
+| `RAPIDAPI_KEY` | RapidAPI key (LinkedIn) | Yes |
+| `CRUNCHBASE_API_KEY` | Crunchbase Basic API key | Yes |
+| `OPENAI_API_KEY` | OpenAI API key | Yes |
+| `OPENAI_MODEL` | Default: `gpt-4o` | No |
+| `SENDGRID_API_KEY` | SendGrid API key | Yes |
+| `DIGEST_RECIPIENT_EMAIL` | Where to send digests | Yes |
+| `API_KEY` | Bearer token for API auth | No |
+| `DATABASE_URL` | Default: `sqlite:///./insight.db` | No |
+| `FRONTEND_URL` | Default: `http://localhost:5173` | No |
 
-| Variable | Description | Required | Default |
-|----------|-------------|----------|---------|
-| TBD      | TBD         | TBD      | TBD     |
-
-Create a `.env.local` or `.env` file (never committed) for local overrides.
+Create a `.env` file (never committed) with these values.
 
 ---
 
