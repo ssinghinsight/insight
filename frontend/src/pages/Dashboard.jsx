@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { getCompanies, syncSalesforce, enrichAll, sendDigest } from '../api.js'
+import { getCompanies, syncSalesforce, enrichAll, sendDigest, getSalesforceAuthStatus } from '../api.js'
 import CompanyCard from '../components/CompanyCard.jsx'
 import FilterBar from '../components/FilterBar.jsx'
+import SalesforceConnect from '../components/SalesforceConnect.jsx'
 
 const s = {
   page: { maxWidth: 1100, margin: '0 auto', padding: '32px 24px' },
@@ -29,6 +30,21 @@ export default function Dashboard({ onSelect }) {
   const [filters, setFilters] = useState({ sort: 'priority' })
   const [loading, setLoading] = useState(true)
   const [actionStatus, setActionStatus] = useState('')
+  const [sfConnected, setSfConnected] = useState(true)
+
+  // Check Salesforce connection on mount; also clear banner after OAuth redirect
+  useEffect(() => {
+    getSalesforceAuthStatus()
+      .then(s => setSfConnected(s.connected))
+      .catch(() => setSfConnected(false))
+
+    // Remove the ?sf_connected param from the URL after a successful OAuth callback
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('sf_connected') === 'true') {
+      setSfConnected(true)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
 
   const loadCompanies = useCallback(async () => {
     setLoading(true)
@@ -82,6 +98,7 @@ export default function Dashboard({ onSelect }) {
 
   return (
     <div style={s.page}>
+      {!sfConnected && <SalesforceConnect />}
       <div style={s.header}>
         <div>
           <h1 style={s.title}>Insight</h1>

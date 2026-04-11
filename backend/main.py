@@ -44,10 +44,20 @@ app.add_middleware(
 API_KEY = os.getenv("API_KEY", "")
 
 
+UNPROTECTED_PATHS = {
+    "/api/health",
+    "/api/auth/salesforce/login",
+    "/api/auth/salesforce/callback",
+    "/api/auth/salesforce/status",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+}
+
+
 @app.middleware("http")
 async def api_key_middleware(request: Request, call_next):
-    # Skip auth for health check and docs
-    if request.url.path in ("/api/health", "/docs", "/openapi.json", "/redoc"):
+    if request.url.path in UNPROTECTED_PATHS:
         return await call_next(request)
 
     if API_KEY:
@@ -58,8 +68,9 @@ async def api_key_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-from routers import companies, signals, digest  # noqa: E402
+from routers import companies, signals, digest, auth  # noqa: E402
 
+app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(signals.router)
 app.include_router(digest.router)

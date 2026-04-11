@@ -1,32 +1,93 @@
 import json
 import os
-from datetime import datetime, timezone
+import httpx
+from datetime import datetime, timezone, timedelta
 from simple_salesforce import Salesforce
+from fastapi import HTTPException
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Access tokens live ~8 h; refresh proactively after 7 h
+_TOKEN_MAX_AGE = timedelta(hours=7)
 
-def get_sf_client() -> Salesforce:
-    return Salesforce(
-        username=os.getenv("SF_USERNAME"),
-        password=os.getenv("SF_PASSWORD"),
-        security_token=os.getenv("SF_SECURITY_TOKEN"),
-        domain=os.getenv("SF_DOMAIN", "login"),
-    )
+
+def get_sf_client(db) -> Salesforce:
+    """Return an authenticated Salesforce client using the stored OAuth token.
+    Refreshes the access token automatically if it is stale.
+    Raises HTTP 401 if the user has not completed the OAuth flow yet.
+    """
+    from models import SalesforceAuth
+
+    auth = db.query(SalesforceAuth).first()
+    if not auth:
+        raise HTTPException(
+            status_code=401,
+            detail="Salesforce not connected. Visit /api/auth/salesforce/login to authorise.",
+        )
+
+    if _token_is_stale(auth.token_issued_at):
+        auth = _refresh_access_token(db, auth)
+
+    return Salesforce(access_token=auth.access_token, instance_url=auth.instance_url)
+
+
+def _token_is_stale(issued_at: datetime | None) -> bool:
+    if not issued_at:
+        return True
+    # issued_at may be naive (stored without tz); treat as UTC
+    if issued_at.tzinfo is None:
+        issued_at = issued_at.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - issued_at > _TOKEN_MAX_AGE
+
+
+def _refresh_access_token(db, auth):
+    client_id = os.getenv("SF_OAUTH_CLIENT_ID")
+    client_secret = os.getenv("SF_OAUTH_CLIENT_SECRET")
+    domain = os.getenv("SF_DOMAIN", "login")
+    token_url = f"https://{domain}.salesforce.com/services/oauth2/token"
+
+    try:
+        resp = httpx.post(
+            token_url,
+            data={
+                "grant_type": "refresh_token",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": auth.refresh_token,
+            },
+            headers={"Accept": "application/json"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, f"Salesforce token refresh failed: {exc.response.text}")
+
+    payload = resp.json()
+    auth.access_token = payload["access_token"]
+    auth.instance_url = payload.get("instance_url", auth.instance_url)
+    auth.token_issued_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(auth)
+    return auth
 
 
 def sync_accounts(db) -> int:
     from models import Company
 
-    sf = get_sf_client()
-    owner_id = os.getenv("SF_OWNER_ID")
+    sf = get_sf_client(db)
 
+    # Derive owner ID from the stored auth record
+    from models import SalesforceAuth
+    auth = db.query(SalesforceAuth).first()
+    owner_id = auth.sf_user_id if auth else None
+
+    owner_filter = f"WHERE OwnerId = '{owner_id}'" if owner_id else ""
     soql = f"""
         SELECT Id, Name, Website, Priority__c, Industry, AnnualRevenue,
                Description, LastActivityDate
         FROM Account
-        WHERE OwnerId = '{owner_id}'
+        {owner_filter}
         ORDER BY Priority__c DESC NULLS LAST
     """
     result = sf.query_all(soql)
@@ -35,8 +96,6 @@ def sync_accounts(db) -> int:
     synced = 0
     for rec in records:
         account_id = rec["Id"]
-
-        # Pull last 10 activity notes for this account
         activity_notes = _fetch_activity_notes(sf, account_id)
 
         existing = db.query(Company).filter(Company.id == account_id).first()
@@ -82,8 +141,7 @@ def _fetch_activity_notes(sf: Salesforce, account_id: str) -> list:
             ORDER BY ActivityDate DESC
             LIMIT 10
         """
-        task_result = sf.query(task_soql)
-        for t in task_result.get("records", []):
+        for t in sf.query(task_soql).get("records", []):
             notes.append({
                 "type": "task",
                 "subject": t.get("Subject"),
@@ -94,7 +152,7 @@ def _fetch_activity_notes(sf: Salesforce, account_id: str) -> list:
     except Exception:
         pass
 
-    # Notes (ContentNote or Note object)
+    # Notes
     try:
         note_soql = f"""
             SELECT Title, Body, CreatedDate
@@ -103,8 +161,7 @@ def _fetch_activity_notes(sf: Salesforce, account_id: str) -> list:
             ORDER BY CreatedDate DESC
             LIMIT 5
         """
-        note_result = sf.query(note_soql)
-        for n in note_result.get("records", []):
+        for n in sf.query(note_soql).get("records", []):
             notes.append({
                 "type": "note",
                 "subject": n.get("Title"),

@@ -4,6 +4,18 @@ from datetime import datetime, timezone
 from database import Base
 
 
+class SalesforceAuth(Base):
+    __tablename__ = "salesforce_auth"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text, nullable=False)
+    instance_url = Column(String, nullable=False)
+    sf_user_id = Column(String)       # 18-char Salesforce User ID
+    token_issued_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class Company(Base):
     __tablename__ = "companies"
 

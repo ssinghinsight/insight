@@ -142,15 +142,18 @@ npm run dev
 ### Initial Data Load
 
 ```bash
-# 1. Sync accounts from Salesforce
+# 1. Open the dashboard and click "Connect Salesforce" to complete OAuth
+open http://localhost:5173
+
+# 2. Sync accounts from Salesforce
 curl -X POST http://localhost:8000/api/companies/sync \
   -H "Authorization: Bearer <your-api-key>"
 
-# 2. Enrich all companies (news + LinkedIn + Crunchbase + OpenAI)
+# 3. Enrich all companies (news + LinkedIn + Crunchbase + OpenAI)
 curl -X POST http://localhost:8000/api/enrich/all \
   -H "Authorization: Bearer <your-api-key>"
 
-# 3. Preview the email digest in browser
+# 4. Preview the email digest in browser
 open http://localhost:8000/api/digest/preview
 ```
 
@@ -166,15 +169,28 @@ open http://localhost:8000/api/digest/preview
 
 ---
 
+## Salesforce Authentication
+
+This app uses **OAuth 2.0 Web Server Flow** (SSO-compatible). Username/password auth is not supported.
+
+**One-time setup:**
+1. Salesforce Setup → App Manager → New Connected App
+2. Enable OAuth Settings
+3. Callback URL: `http://localhost:8000/api/auth/salesforce/callback`
+4. Scopes: `api`, `refresh_token`, `offline_access`
+5. Save → copy Consumer Key + Secret into `.env`
+6. Start the app, open `http://localhost:5173`, click **Connect Salesforce**
+
+The app stores the access/refresh token in SQLite and refreshes it automatically.
+
 ## Environment Variables
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `SF_USERNAME` | Salesforce login email | Yes |
-| `SF_PASSWORD` | Salesforce password | Yes |
-| `SF_SECURITY_TOKEN` | Salesforce security token | Yes |
+| `SF_OAUTH_CLIENT_ID` | Connected App Consumer Key | Yes |
+| `SF_OAUTH_CLIENT_SECRET` | Connected App Consumer Secret | Yes |
+| `SF_OAUTH_REDIRECT_URI` | Default: `http://localhost:8000/api/auth/salesforce/callback` | No |
 | `SF_DOMAIN` | `login` or `test` (sandbox) | Yes |
-| `SF_OWNER_ID` | Your Salesforce User ID (18-char) | Yes |
 | `NEWS_API_KEY` | newsapi.org API key | Yes |
 | `RAPIDAPI_KEY` | RapidAPI key (LinkedIn) | Yes |
 | `CRUNCHBASE_API_KEY` | Crunchbase Basic API key | Yes |

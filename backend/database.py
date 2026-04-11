@@ -42,5 +42,5 @@ def db_session():
 
 
 def init_db():
-    from models import Company, Signal, DigestLog  # noqa: F401
+    from models import Company, Signal, DigestLog, SalesforceAuth  # noqa: F401
     Base.metadata.create_all(bind=engine)

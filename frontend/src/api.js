@@ -27,3 +27,8 @@ export const sendDigest = () =>
 
 export const getSignals = (companyId, params = {}) =>
   api.get(`/signals/${companyId}`, { params }).then(r => r.data)
+
+export const getSalesforceAuthStatus = () =>
+  api.get('/auth/salesforce/status').then(r => r.data)
+
+export const getSalesforceLoginUrl = () => '/api/auth/salesforce/login'
